@@ -1,28 +1,77 @@
 // Function to compute similarity
-function areTextsRelated(text1, text2) {
-        // List of stopwords to exclude from comparison
-        const stopwords = new Set(["the", "a", "and", "in", "on", "for", "to", "of", "with", "is", "it", "at", "by"]);
+// function areTextsRelated(text1, text2) {
+//         // List of stopwords to exclude from comparison
+//         const stopwords = new Set(["the", "a", "and", "in", "on", "for", "to", "of", "with", "is", "it", "at", "by"]);
 
-        // Function to filter out stopwords and split text into words
-        function getKeywords(text) {
-            return text.toLowerCase()
-                .split(/\s+/)
-                .filter(word => !stopwords.has(word)); // Exclude stopwords
-        }
+//         // Function to filter out stopwords and split text into words
+//         function getKeywords(text) {
+//             return text.toLowerCase()
+//                 .split(/\s+/)
+//                 .filter(word => !stopwords.has(word)); // Exclude stopwords
+//         }
     
-        // Get keywords from both texts
-        const keywords1 = getKeywords(text1);
-        const keywords2 = getKeywords(text2);
+//         // Get keywords from both texts
+//         const keywords1 = getKeywords(text1);
+//         const keywords2 = getKeywords(text2);
     
-        // Use Sets to find unique words in both texts
-        const set1 = new Set(keywords1);
-        const set2 = new Set(keywords2);
+//         // Use Sets to find unique words in both texts
+//         const set1 = new Set(keywords1);
+//         const set2 = new Set(keywords2);
     
-        // Find the intersection (common words)
-        const commonWords = [...set1].filter(word => set2.has(word));
-    
-        // Return true if more than one similar keyword is found
-        return commonWords.length > 1;
+//         // Find the intersection (common words)
+//         const commonWords = [...set1].filter(word => set2.has(word));
+
+//         const relationPercent = commonWords.length / set1.size + set2.size
+//         console.log(`Relation Percent ${relationPercent}`)
+//         // Return true if more than one similar keyword is found
+//         return relationPercent > 0.3;
+// }
+
+const tf = require('@tensorflow/tfjs')
+const use = require('@tensorflow-models/universal-sentence-encoder');
+
+// Function to compute cosine similarity
+function cosineSimilarity(vecA, vecB) {
+  const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+  const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
+  const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
+  return dotProduct / (magnitudeA * magnitudeB);
+}
+
+// Function to compare two texts
+async function compareTexts(model, textA, textB) {
+  const [embeddingA, embeddingB] = await Promise.all([
+      model.embed([textA]), // Text must be an array
+      model.embed([textB])  // Text must be an array
+  ]);
+
+  // Extract the embeddings
+  const vecA = (await embeddingA.array())[0];
+  const vecB = (await embeddingB.array())[0];
+
+  // Clean up memory
+  embeddingA.dispose();
+  embeddingB.dispose();
+
+  // Compute cosine similarity
+  return cosineSimilarity(vecA, vecB);
+}
+
+// Main function to compare multiple texts
+async function compareMultipleTexts(baseText, texts) {
+  console.log('Loading Universal Sentence Encoder model...');
+  const model = await use.load();
+
+  console.log('Comparing texts...');
+  const results = await Promise.all(
+      texts.map(async (obj) => {
+          const similarity = await compareTexts(model, baseText, obj.description);
+          return { ...obj, isRelated: similarity > 0.5 };
+      })
+  );
+
+  console.log('Comparison complete.');
+  return results;
 }
 
 async function getTokensList() {
@@ -55,16 +104,7 @@ export default async function handler(req, res) {
       try{
          tokensList = await getTokensList()
 
-         tokensComparation = tokensList.map( token => {
-
-            const comparition = areTextsRelated(token.description, text)
-            return {
-              ...token,
-              isRelated: comparition
-            }
-         })
-
-
+         tokensComparation = await compareMultipleTexts(text, tokensList)
          if(tokensComparation.length > 0){
           tokensComparation = tokensComparation.filter(token => token.isRelated )
           tokensComparation = tokensComparation.map(token => ({
@@ -74,6 +114,22 @@ export default async function handler(req, res) {
             description: token.description,
             links: [...token.links.filter(link => ['website', 'twitter', 'telegram'].includes(link.type || link.label?.toLowerCase())), {type: "dexscreener", url: `https://dexscreener.com/${token.chainId}/${token.tokenAddress}`}]
           }))
+          tokensComparation = tokensComparation.map(async token => {
+            const { ca } = token
+            const response = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${ca}`)
+            const data = await response.json()
+          
+            if(data.pairs && data.pairs.length > 0){
+              token.baseToken = data.pairs[0].baseToken
+              token.marketCap = data.pairs[0].marketCap
+              token.volume24h = data.pairs[0].volume.h24
+              
+            }
+
+            return token
+          })
+
+          tokensComparation = await Promise.all(tokensComparation)
          }
 
       }catch(e){

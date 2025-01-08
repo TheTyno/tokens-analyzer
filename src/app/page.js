@@ -14,6 +14,7 @@ import {
   AccordionSummary,
   AccordionDetails,
   IconButton,
+  CircularProgress,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import TwitterIcon from "@mui/icons-material/Twitter";
@@ -21,23 +22,22 @@ import TelegramIcon from "@mui/icons-material/Telegram";
 import LanguageIcon from "@mui/icons-material/Language";
 
 const customIcon = (type) => {
-  let image
-  console.log(type)
-  if(type === "dexscreener") image = "https://cdn.prod.website-files.com/6421d264d066fd2b24b91b20/661375b92a7e161501f4b5e5_dexscreener.322a5a2d.png"
-  if(type === "dextools") image = "https://cdn.prod.website-files.com/6421d264d066fd2b24b91b20/661375b92a7e161501f4b5e5_dexscreener.322a5a2d.png"
+  let image;
+  if (type === "dexscreener") image = "https://cdn.prod.website-files.com/6421d264d066fd2b24b91b20/661375b92a7e161501f4b5e5_dexscreener.322a5a2d.png";
+  if (type === "dextools") image = "https://cdn.prod.website-files.com/6421d264d066fd2b24b91b20/661375b92a7e161501f4b5e5_dexscreener.322a5a2d.png";
 
   return (props) => (
     <IconButton>
       <img
-      {...props}
-                src={image}
-                alt={`${type} Icon`}
-                style={{
-                  width: "25px",  // You can adjust the size of the icon
-                  height: "25px",
-                  borderRadius: "50%",
-                  objectFit: "contain", // Ensures the image doesn't stretch
-                }}
+        {...props}
+        src={image}
+        alt={`${type} Icon`}
+        style={{
+          width: "25px",
+          height: "25px",
+          borderRadius: "50%",
+          objectFit: "contain",
+        }}
       />
     </IconButton>
   );
@@ -46,10 +46,13 @@ const customIcon = (type) => {
 const ChatInterface = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);  // Loading state
 
   // Handle sending messages
   const handleSend = async () => {
     if (input.trim() === "") return;
+
+    setLoading(true); // Set loading state to true
 
     const rawResponse = await fetch("/api/tokens", {
       method: "POST",
@@ -68,6 +71,7 @@ const ChatInterface = () => {
       { sender: "Bot", text: result },
     ]);
     setInput(""); // Clear input field
+    setLoading(false); // Set loading state to false
   };
 
   // Render links with appropriate icons as clickable buttons
@@ -82,7 +86,7 @@ const ChatInterface = () => {
       } else if (link.label?.toUpperCase() === "WEBSITE") {
         IconComponent = LanguageIcon;
       } else {
-        IconComponent = customIcon(link.type)
+        IconComponent = customIcon(link.type);
       }
 
       return (
@@ -104,9 +108,17 @@ const ChatInterface = () => {
     });
   };
 
+  // Format numbers as USD currency
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(amount);
+  };
+
   // Function to render a single object
   const renderObject = (obj) => {
-    const { ca, chain, icon, description, links } = obj;
+    const { ca, chain, icon, description, links, baseToken, marketCap, volume24h } = obj;
 
     return (
       <Accordion key={ca}>
@@ -131,12 +143,48 @@ const ChatInterface = () => {
                 fontSize: "0.875rem", // Smaller font size for CA
               }}
             >
-              {ca}
+              {`${baseToken.name} $${baseToken.symbol}`}
+            </Typography>
+            <Typography
+              variant="body1"
+              sx={{
+                fontWeight: "bold",
+                fontSize: "0.875rem", // Smaller font size for Market Cap
+              }}
+            >
+              <strong>Market Cap</strong> {formatCurrency(marketCap)}
+            </Typography>
+            <Typography
+              variant="body1"
+              sx={{
+                fontWeight: "bold",
+                fontSize: "0.875rem", // Smaller font size for Volume 24h
+              }}
+            >
+              <strong>Volume 24h</strong> {formatCurrency(volume24h)}
             </Typography>
           </Box>
         </AccordionSummary>
         <AccordionDetails>
           {/* Render description */}
+          <Typography
+            variant="body1"
+            sx={{
+              fontWeight: "bold",
+              fontSize: "0.875rem", // Smaller font size for CA
+            }}
+          >
+            Chain: {chain}
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              fontWeight: "bold",
+              fontSize: "0.875rem", // Smaller font size for CA
+            }}
+          >
+            {ca}
+          </Typography>
           {description && (
             <Typography variant="body2" sx={{ marginBottom: "8px" }}>
               {description}
@@ -180,6 +228,28 @@ const ChatInterface = () => {
         boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
       }}
     >
+      {/* Loading Component */}
+      {loading && (
+        <Box
+          sx={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            backgroundColor: "#ffffff",
+            padding: "16px",
+            borderRadius: "8px",
+            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            zIndex: 1000,
+          }}
+        >
+          <Typography variant="h6" sx={{ marginBottom: "16px", color: "black" }}>
+            Analyzing Most Recent Created Tokens...
+          </Typography>
+          <CircularProgress />
+        </Box>
+      )}
+
       {/* Chat messages display */}
       <Paper
         sx={{
@@ -239,7 +309,6 @@ const ChatInterface = () => {
             "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
               borderColor: "#ffffff", // Change the border color to white when focused
             },
-            // Change label color to white when focused
             "& .MuiInputLabel-root.Mui-focused": {
               color: "#ffffff",
             },
